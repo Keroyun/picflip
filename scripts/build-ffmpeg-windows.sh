@@ -103,6 +103,7 @@ if [[ ! -f "$prefix_directory/lib/libx264.a" ]]; then
     --host=x86_64-w64-mingw32 \
     --cross-prefix=x86_64-w64-mingw32- \
     --enable-static \
+    --bit-depth=8 \
     --disable-cli \
     --disable-opencl \
     --disable-asm
