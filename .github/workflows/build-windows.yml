@@ -25,7 +25,7 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
 
@@ -41,22 +41,25 @@ jobs:
           "version=$packageVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           Write-Host "Building PicFlip $packageVersion"
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11.9.0
-
       - name: Install Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
-          cache: pnpm
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install pinned pnpm and stable Rust
+        shell: pwsh
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+
+      - name: Scan source for secrets and private paths
+        shell: pwsh
+        run: node scripts/security-scan.mjs
 
       - name: Install MSYS2 build tools
-        uses: msys2/setup-msys2@v2
+        uses: msys2/setup-msys2@14def2cbd8457e21d5033f7d1654209f079f2b98 # immutable 2026-07-13 revision
         with:
           msystem: UCRT64
           update: true
@@ -161,7 +164,7 @@ jobs:
           Remove-Item -Recurse -Force $sourceRoot, $shareRoot
 
       - name: Upload Windows packages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: PicFlip-${{ steps.app.outputs.version }}-Windows-x64
           path: windows-release/*

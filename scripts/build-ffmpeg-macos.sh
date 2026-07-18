@@ -24,8 +24,14 @@ download_and_extract() {
   folder="$3"
   expected_sha256="$4"
 
-  if [ -d "$source_directory/$folder" ]; then
+  if [ -f "$source_directory/$folder/configure" ]; then
     return
+  fi
+
+  # A previous interrupted or cleaned build can leave an incomplete directory.
+  # Never treat that as a valid source tree.
+  if [ -d "$source_directory/$folder" ]; then
+    rm -rf "$source_directory/$folder"
   fi
 
   if [ ! -f "$source_directory/$archive" ]; then

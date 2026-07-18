@@ -2,8 +2,10 @@ import { access, chmod, copyFile, mkdir, rm } from "node:fs/promises";
 import { promisify } from "node:util";
 import { execFile as execFileCallback } from "node:child_process";
 import { arch, platform } from "node:process";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import ffmpegPath from "ffmpeg-static";
+import { sanitizeBinaryPaths } from "./sanitize-binary-paths.mjs";
 
 const execFile = promisify(execFileCallback);
 const targetTriple = process.env.TAURI_ENV_TARGET_TRIPLE ?? localTargetTriple();
@@ -17,6 +19,7 @@ const destination = new URL(
 await mkdir(binariesDirectory, { recursive: true });
 
 if (await isUsable(destination)) {
+  await sanitizeSidecar(destination);
   await prepareLicenseNotices();
   process.stdout.write(`Using verified FFmpeg sidecar for ${targetTriple}.\n`);
   process.exit(0);
@@ -48,6 +51,7 @@ if (!(await isUsable(destination))) {
   );
 }
 
+await sanitizeSidecar(destination);
 await prepareLicenseNotices();
 process.stdout.write(`Prepared verified FFmpeg sidecar for ${targetTriple}.\n`);
 
@@ -92,6 +96,18 @@ async function prepareLicenseNotices() {
       new URL("../node_modules/ffmpeg-static/LICENSE", import.meta.url),
       new URL("FFMPEG-STATIC.LICENSE", resourcesDirectory),
     );
+  }
+}
+
+async function sanitizeSidecar(binaryUrl) {
+  const binaryPath = binaryUrl instanceof URL ? fileURLToPath(binaryUrl) : binaryUrl;
+  const repositoryRoot = fileURLToPath(new URL("../", import.meta.url)).replace(/[\\/]$/, "");
+  const replacements = await sanitizeBinaryPaths(binaryPath, [repositoryRoot, homedir()]);
+  if (replacements > 0) {
+    process.stdout.write(`Removed ${replacements} private build-path reference(s) from the FFmpeg sidecar.\n`);
+  }
+  if (platform === "darwin") {
+    await execFile("/usr/bin/codesign", ["--force", "--sign", "-", binaryPath], { timeout: 30_000 });
   }
 }
 

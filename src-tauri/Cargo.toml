@@ -1,6 +1,6 @@
 [package]
 name = "picflip"
-version = "0.3.4"
+version = "0.3.5"
 description = "A private, offline media conversion toolkit"
 authors = ["PicFlip"]
 edition = "2021"
@@ -17,7 +17,8 @@ base64 = "0.22"
 image = { version = "0.25", features = ["bmp", "gif", "ico", "jpeg", "png", "tiff", "webp"] }
 open = "5"
 serde = { version = "1", features = ["derive"] }
-tauri = { version = "2", features = ["macos-private-api"] }
+tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
 tauri-plugin-shell = "2"
 webp = "0.3"
