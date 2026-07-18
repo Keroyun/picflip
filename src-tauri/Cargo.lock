@@ -2626,10 +2626,11 @@ dependencies = [
 
 [[package]]
 name = "picflip"
-version = "0.3.1"
+version = "0.3.4"
 dependencies = [
  "base64 0.22.1",
  "image",
+ "open",
  "serde",
  "tauri",
  "tauri-build",
