@@ -133,6 +133,7 @@ chmod 755 "$project_directory/scripts/picflip-pkg-config.sh"
   --disable-autodetect \
   --disable-doc \
   --disable-debug \
+  --disable-x86asm \
   --disable-ffplay \
   --disable-ffprobe \
   --disable-network \
