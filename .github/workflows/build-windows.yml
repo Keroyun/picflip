@@ -29,6 +29,18 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Read and verify application version
+        id: app
+        shell: pwsh
+        run: |
+          $packageVersion = (Get-Content "package.json" -Raw | ConvertFrom-Json).version
+          $tauriVersion = (Get-Content "src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json).version
+          if ($packageVersion -ne $tauriVersion) {
+            throw "Version mismatch: package.json=$packageVersion, tauri.conf.json=$tauriVersion"
+          }
+          "version=$packageVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host "Building PicFlip $packageVersion"
+
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -87,7 +99,7 @@ jobs:
       - name: Create share and corresponding-source packages
         shell: pwsh
         run: |
-          $version = "0.3.0"
+          $version = "${{ steps.app.outputs.version }}"
           $release = Join-Path $PWD "windows-release"
           $sourceRoot = Join-Path $release "corresponding-source"
           $shareRoot = Join-Path $release "share-package"
@@ -151,7 +163,7 @@ jobs:
       - name: Upload Windows packages
         uses: actions/upload-artifact@v4
         with:
-          name: PicFlip-0.3.0-Windows-x64
+          name: PicFlip-${{ steps.app.outputs.version }}-Windows-x64
           path: windows-release/*
           if-no-files-found: error
           retention-days: 14

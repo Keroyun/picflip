@@ -14,6 +14,7 @@ PicFlip is a private, offline media conversion toolkit for Windows and macOS. It
 - Audio: convert MP3, WAV, AAC, and M4A inputs to MP3, WAV, or AAC.
 - Video: accept MP4, MOV, M4V, MKV, AVI, WebM, and GIF; export MP4, MOV, MKV, AVI, or GIF.
 - Video controls: H.264 quality presets, original/720p/1080p/4K sizing, optional audio retention, and improved GIF palette rendering.
+- Accessible display: responsive laptop layouts and an Apple-style text-size slider from 90% to 130%, saved locally for the next launch.
 - Privacy: no accounts, analytics, uploads, remote conversion, or network access while using the app.
 
 Clean Upscale is a classical local enhancement filter, not generative AI. It can reduce visible blockiness and improve edge definition, but cannot reconstruct detail that does not exist in the source image.

@@ -46,6 +46,20 @@ const modeCopy: Record<Mode, { title: string; subtitle: string; add: string; emp
   enhance: { title: "Clean Upscale", subtitle: "Smooth blockiness, sharpen edges, and enlarge locally", add: "Add images", empty: "Add pixelated images to clean up" },
 };
 
+const fontScaleStorageKey = "picflip-interface-font-scale";
+const fontScaleMin = 90;
+const fontScaleMax = 130;
+
+function savedFontScale() {
+  try {
+    const value = Number(window.localStorage.getItem(fontScaleStorageKey));
+    if (Number.isFinite(value) && value >= fontScaleMin && value <= fontScaleMax) return value;
+  } catch {
+    // Local storage can be unavailable in locked-down environments. The default still works.
+  }
+  return 100;
+}
+
 function App() {
   const [mode, setMode] = useState<Mode>("images");
   const [pdfDirection, setPdfDirection] = useState<PdfDirection>("pdf-to-images");
@@ -74,6 +88,16 @@ function App() {
   const [isInspecting, setIsInspecting] = useState(false);
   const [isConverting, setIsConverting] = useState(false);
   const [notice, setNotice] = useState("");
+  const [fontScale, setFontScale] = useState(savedFontScale);
+
+  useEffect(() => {
+    document.documentElement.style.fontSize = `${fontScale}%`;
+    try {
+      window.localStorage.setItem(fontScaleStorageKey, String(fontScale));
+    } catch {
+      // Keep the control usable for this session even if preferences cannot be stored.
+    }
+  }, [fontScale]);
 
   const acceptedExtensions = useMemo(() => {
     if (mode === "images" || mode === "enhance") return imageExtensions;
@@ -344,7 +368,8 @@ function App() {
         </section>
 
         <aside className="settings-panel">
-          <div className="settings-title"><SlidersIcon /><div><h2>Settings</h2><p>For this conversion</p></div></div>
+          <div className="settings-title"><SlidersIcon /><div><h2>Settings</h2><p>Conversion and display</p></div></div>
+          <DisplaySizeControl value={fontScale} onChange={setFontScale} />
           <Settings
             mode={mode} pdfDirection={pdfDirection} outputFormat={outputFormat} setOutputFormat={setOutputFormat}
             quality={quality} setQuality={setQuality} resizeMode={resizeMode} setResizeMode={setResizeMode}
@@ -370,6 +395,32 @@ function App() {
         <button className="primary-button" disabled={!items.length || isConverting} onClick={() => void convertAll()}>{isConverting ? <Spinner /> : <ConvertIcon />}{actionLabel}</button>
       </footer>
     </div>
+  );
+}
+
+function DisplaySizeControl({ value, onChange }: { value: number; onChange: (value: number) => void }) {
+  const progress = ((value - fontScaleMin) / (fontScaleMax - fontScaleMin)) * 100;
+  return (
+    <section className="display-setting" aria-labelledby="text-size-label">
+      <div className="display-setting-heading">
+        <div><strong id="text-size-label">Text size</strong><span>Adjust the whole interface</span></div>
+        <output aria-live="polite">{value}%</output>
+      </div>
+      <div className="font-size-control">
+        <span className="font-size-small" aria-hidden="true">A</span>
+        <input
+          aria-label="Interface text size"
+          type="range"
+          min={fontScaleMin}
+          max={fontScaleMax}
+          step={5}
+          value={value}
+          style={{ "--range-progress": `${progress}%` } as React.CSSProperties}
+          onChange={(event) => onChange(Number(event.target.value))}
+        />
+        <span className="font-size-large" aria-hidden="true">A</span>
+      </div>
+    </section>
   );
 }
 
