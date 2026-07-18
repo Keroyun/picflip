@@ -44,7 +44,7 @@ const fontScaleStorageKey = "picflip-interface-font-scale";
 const languageStorageKey = "picflip-interface-language";
 const fontScaleMin = 90;
 const fontScaleMax = 130;
-const appVersion = "0.3.4";
+const appVersion = "0.3.5";
 const profileUrls = {
   website: "https://khairulazhar.com",
   github: "https://github.com/Keroyun",
@@ -233,7 +233,7 @@ function App() {
   }
 
   async function chooseOutputFolder(): Promise<string | null> {
-    const selected = await open({ directory: true, multiple: false });
+    const selected = await open({ directory: true, multiple: false, recursive: true });
     if (typeof selected === "string") {
       setOutputDirectory(selected);
       return selected;

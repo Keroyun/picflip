@@ -4,6 +4,11 @@ import pdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker;
 
+const maximumInMemoryBytes = 256 * 1024 * 1024;
+const maximumPdfPages = 500;
+const maximumImageDimension = 16_384;
+const maximumImagePixels = 100_000_000;
+
 export interface RenderedPdfPage {
   pageNumber: number;
   dataBase64: string;
@@ -21,8 +26,12 @@ export async function renderPdfToImages(
   const loadingTask = pdfjs.getDocument({ data: base64ToBytes(pdfBase64) });
   const document = await loadingTask.promise;
   const rendered: RenderedPdfPage[] = [];
+  let renderedBytes = 0;
 
   try {
+    if (document.numPages > maximumPdfPages) {
+      throw new Error(`PDF files are limited to ${maximumPdfPages} pages.`);
+    }
     for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
       onProgress?.(pageNumber, document.numPages);
       const page = await document.getPage(pageNumber);
@@ -30,6 +39,7 @@ export async function renderPdfToImages(
       const canvas = window.document.createElement("canvas");
       canvas.width = Math.ceil(viewport.width);
       canvas.height = Math.ceil(viewport.height);
+      validateImageDimensions(canvas.width, canvas.height);
       const context = canvas.getContext("2d", { alpha: format !== "jpg" });
       if (!context) throw new Error("This computer could not create a PDF drawing surface.");
 
@@ -41,6 +51,10 @@ export async function renderPdfToImages(
       await page.render({ canvas, canvasContext: context, viewport }).promise;
       const mime = format === "jpg" ? "image/jpeg" : `image/${format}`;
       const blob = await canvasToBlob(canvas, mime, quality / 100);
+      renderedBytes += blob.size;
+      if (renderedBytes > maximumInMemoryBytes) {
+        throw new Error("The rendered PDF output is too large to process safely.");
+      }
       rendered.push({
         pageNumber,
         dataBase64: bytesToBase64(new Uint8Array(await blob.arrayBuffer())),
@@ -60,12 +74,16 @@ export async function renderPdfToImages(
 
 export async function createPdfFromPngImages(pngImagesBase64: string[]): Promise<string> {
   if (pngImagesBase64.length === 0) throw new Error("Add at least one image first.");
+  if (pngImagesBase64.length > maximumPdfPages) {
+    throw new Error(`PDF files are limited to ${maximumPdfPages} pages.`);
+  }
   const document = await PDFDocument.create();
   document.setCreator("PicFlip");
   document.setProducer("PicFlip offline PDF tools");
 
   for (const imageBase64 of pngImagesBase64) {
     const image = await document.embedPng(base64ToBytes(imageBase64));
+    validateImageDimensions(image.width, image.height);
     const maximumSide = 1440;
     const fitScale = Math.min(1, maximumSide / Math.max(image.width, image.height));
     const width = Math.max(1, image.width * fitScale);
@@ -74,7 +92,11 @@ export async function createPdfFromPngImages(pngImagesBase64: string[]): Promise
     page.drawImage(image, { x: 0, y: 0, width, height });
   }
 
-  return bytesToBase64(await document.save());
+  const bytes = await document.save();
+  if (bytes.byteLength > maximumInMemoryBytes) {
+    throw new Error("The generated PDF is too large to process safely.");
+  }
+  return bytesToBase64(bytes);
 }
 
 function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob> {
@@ -88,17 +110,39 @@ function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number):
 }
 
 function base64ToBytes(value: string): Uint8Array {
+  const estimatedBytes = Math.floor(value.length * 0.75);
+  if (estimatedBytes > maximumInMemoryBytes) {
+    throw new Error("This file is too large to process safely.");
+  }
   const binary = atob(value);
+  if (binary.length > maximumInMemoryBytes) {
+    throw new Error("This file is too large to process safely.");
+  }
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
   return bytes;
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
+  if (bytes.byteLength > maximumInMemoryBytes) {
+    throw new Error("This file is too large to process safely.");
+  }
   const chunkSize = 0x8000;
   let binary = "";
   for (let index = 0; index < bytes.length; index += chunkSize) {
     binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
   }
   return btoa(binary);
+}
+
+function validateImageDimensions(width: number, height: number) {
+  const pixels = width * height;
+  if (!Number.isFinite(pixels)
+    || width < 1
+    || height < 1
+    || width > maximumImageDimension
+    || height > maximumImageDimension
+    || pixels > maximumImagePixels) {
+    throw new Error(`Images are limited to ${maximumImageDimension}px per side and ${maximumImagePixels} pixels.`);
+  }
 }

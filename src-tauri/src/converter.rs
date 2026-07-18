@@ -9,11 +9,18 @@ use base64::{engine::general_purpose::STANDARD, Engine as _};
 use image::{
     codecs::{jpeg::JpegEncoder, png::PngEncoder},
     imageops::{self, FilterType},
-    DynamicImage, GenericImageView, ImageEncoder, ImageFormat, ImageReader, Rgb, RgbImage,
+    DynamicImage, GenericImageView, ImageEncoder, ImageFormat, ImageReader, Limits, Rgb, RgbImage,
     RgbaImage,
 };
 use serde::{Deserialize, Serialize};
+use tauri_plugin_fs::FsExt;
 use tauri_plugin_shell::ShellExt;
+
+const MAX_IN_MEMORY_BYTES: u64 = 256 * 1024 * 1024;
+const MAX_MEDIA_SOURCE_BYTES: u64 = 50 * 1024 * 1024 * 1024;
+const MAX_IMAGE_DIMENSION: u32 = 16_384;
+const MAX_IMAGE_PIXELS: u64 = 100_000_000;
+const MAX_IMAGE_ALLOCATION: u64 = 512 * 1024 * 1024;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -74,10 +81,12 @@ pub struct ConversionResult {
 }
 
 #[tauri::command]
-pub fn inspect_file(path: String) -> Result<FileInfo, String> {
-    let source = Path::new(&path);
-    ensure_source_file(source)?;
+pub fn inspect_file(app: tauri::AppHandle, path: String) -> Result<FileInfo, String> {
+    let source = approved_source_file(&app, &path, MAX_MEDIA_SOURCE_BYTES)?;
+    inspect_file_impl(&source)
+}
 
+fn inspect_file_impl(source: &Path) -> Result<FileInfo, String> {
     let metadata = fs::metadata(source).map_err(display_error)?;
     let name = source
         .file_name()
@@ -95,7 +104,7 @@ pub fn inspect_file(path: String) -> Result<FileInfo, String> {
     let thumbnail_data_url = decoded.as_ref().map(image_thumbnail).transpose()?;
 
     Ok(FileInfo {
-        path,
+        path: source.to_string_lossy().into_owned(),
         name,
         extension,
         size: metadata.len(),
@@ -106,11 +115,22 @@ pub fn inspect_file(path: String) -> Result<FileInfo, String> {
 }
 
 #[tauri::command]
-pub fn convert_image(path: String, options: ConversionOptions) -> Result<ConversionResult, String> {
+pub fn convert_image(
+    app: tauri::AppHandle,
+    path: String,
+    options: ConversionOptions,
+) -> Result<ConversionResult, String> {
+    let source = approved_source_file(&app, &path, MAX_IN_MEMORY_BYTES)?;
+    let output_directory = approved_output_directory(&app, &options.output_directory)?;
+    convert_image_impl(&source, &output_directory, &options)
+}
+
+fn convert_image_impl(
+    source: &Path,
+    output_directory: &Path,
+    options: &ConversionOptions,
+) -> Result<ConversionResult, String> {
     let started_at = Instant::now();
-    let source = Path::new(&path);
-    ensure_source_file(source)?;
-    let output_directory = valid_output_directory(&options.output_directory)?;
     let bytes_before = fs::metadata(source).map_err(display_error)?.len();
     let decoded = read_image(source)?;
     let converted = resize_image(decoded, &options)?;
@@ -122,19 +142,37 @@ pub fn convert_image(path: String, options: ConversionOptions) -> Result<Convers
 }
 
 #[tauri::command]
-pub fn enhance_image(path: String, options: EnhanceOptions) -> Result<ConversionResult, String> {
+pub fn enhance_image(
+    app: tauri::AppHandle,
+    path: String,
+    options: EnhanceOptions,
+) -> Result<ConversionResult, String> {
+    let source = approved_source_file(&app, &path, MAX_IN_MEMORY_BYTES)?;
+    let output_directory = approved_output_directory(&app, &options.output_directory)?;
+    enhance_image_impl(&source, &output_directory, &options)
+}
+
+fn enhance_image_impl(
+    source: &Path,
+    output_directory: &Path,
+    options: &EnhanceOptions,
+) -> Result<ConversionResult, String> {
     let started_at = Instant::now();
-    let source = Path::new(&path);
-    ensure_source_file(source)?;
-    let output_directory = valid_output_directory(&options.output_directory)?;
     let bytes_before = fs::metadata(source).map_err(display_error)?.len();
     let decoded = read_image(source)?;
 
     if !matches!(options.upscale, 1 | 2 | 4) {
         return Err("Upscale must be 1×, 2×, or 4×.".to_string());
     }
-    let target_width = decoded.width().saturating_mul(options.upscale).max(1);
-    let target_height = decoded.height().saturating_mul(options.upscale).max(1);
+    let target_width = decoded
+        .width()
+        .checked_mul(options.upscale)
+        .ok_or_else(|| "The requested image size is too large.".to_string())?;
+    let target_height = decoded
+        .height()
+        .checked_mul(options.upscale)
+        .ok_or_else(|| "The requested image size is too large.".to_string())?;
+    validate_image_dimensions(target_width, target_height)?;
     let upscaled = decoded.resize_exact(target_width, target_height, FilterType::Lanczos3);
     let (blur, sigma, threshold) = match options.strength.as_str() {
         "gentle" => (0.18, 0.65, 3),
@@ -149,19 +187,17 @@ pub fn enhance_image(path: String, options: EnhanceOptions) -> Result<Conversion
 }
 
 #[tauri::command]
-pub fn read_file_base64(path: String) -> Result<String, String> {
-    let source = Path::new(&path);
-    ensure_source_file(source)?;
+pub fn read_file_base64(app: tauri::AppHandle, path: String) -> Result<String, String> {
+    let source = approved_source_file(&app, &path, MAX_IN_MEMORY_BYTES)?;
     fs::read(source)
         .map(|bytes| STANDARD.encode(bytes))
         .map_err(display_error)
 }
 
 #[tauri::command]
-pub fn image_as_png_base64(path: String) -> Result<String, String> {
-    let source = Path::new(&path);
-    ensure_source_file(source)?;
-    let image = read_image(source)?.to_rgba8();
+pub fn image_as_png_base64(app: tauri::AppHandle, path: String) -> Result<String, String> {
+    let source = approved_source_file(&app, &path, MAX_IN_MEMORY_BYTES)?;
+    let image = read_image(&source)?.to_rgba8();
     let mut bytes = Vec::new();
     PngEncoder::new(&mut bytes)
         .write_image(
@@ -176,20 +212,28 @@ pub fn image_as_png_base64(path: String) -> Result<String, String> {
 
 #[tauri::command]
 pub fn write_base64_file(
+    app: tauri::AppHandle,
     output_directory: String,
     preferred_name: String,
     data_base64: String,
 ) -> Result<String, String> {
-    let directory = valid_output_directory(&output_directory)?;
+    let directory = approved_output_directory(&app, &output_directory)?;
     let safe_name = Path::new(&preferred_name)
         .file_name()
         .and_then(|value| value.to_str())
         .filter(|value| !value.is_empty())
         .ok_or_else(|| "The output file name is invalid.".to_string())?;
+    let estimated_bytes = data_base64.len().saturating_mul(3) / 4;
+    if estimated_bytes as u64 > MAX_IN_MEMORY_BYTES {
+        return Err("The generated file is too large to process safely.".to_string());
+    }
     let bytes = STANDARD
         .decode(data_base64)
         .map_err(|error| format!("Could not decode the generated file: {error}"))?;
-    let output_path = available_file_path(directory, safe_name);
+    if bytes.len() as u64 > MAX_IN_MEMORY_BYTES {
+        return Err("The generated file is too large to process safely.".to_string());
+    }
+    let output_path = available_file_path(&directory, safe_name);
     fs::write(&output_path, bytes).map_err(display_error)?;
     Ok(output_path.to_string_lossy().into_owned())
 }
@@ -201,13 +245,12 @@ pub async fn convert_media(
     options: MediaOptions,
 ) -> Result<ConversionResult, String> {
     let started_at = Instant::now();
-    let source = Path::new(&path);
-    ensure_source_file(source)?;
-    let output_directory = valid_output_directory(&options.output_directory)?;
+    let source = approved_source_file(&app, &path, MAX_MEDIA_SOURCE_BYTES)?;
+    let output_directory = approved_output_directory(&app, &options.output_directory)?;
     let extension = normalized_media_extension(&options.kind, &options.target_format)?;
-    let output_path = available_output_path(source, output_directory, extension);
-    let bytes_before = fs::metadata(source).map_err(display_error)?.len();
-    let args = media_arguments(source, &output_path, &options)?;
+    let output_path = available_output_path(&source, &output_directory, extension);
+    let bytes_before = fs::metadata(&source).map_err(display_error)?.len();
+    let args = media_arguments(&source, &output_path, &options)?;
 
     let output = app
         .shell()
@@ -249,28 +292,79 @@ fn image_thumbnail(image: &DynamicImage) -> Result<String, String> {
     Ok(format!("data:image/png;base64,{}", STANDARD.encode(bytes)))
 }
 
-fn ensure_source_file(path: &Path) -> Result<(), String> {
+fn ensure_source_file(path: &Path, maximum_bytes: u64) -> Result<(), String> {
     if !path.is_file() {
         return Err("The selected file no longer exists.".to_string());
+    }
+    let size = fs::metadata(path).map_err(display_error)?.len();
+    if size > maximum_bytes {
+        return Err("The selected file is too large to process safely.".to_string());
     }
     Ok(())
 }
 
-fn valid_output_directory(path: &str) -> Result<&Path, String> {
-    let directory = Path::new(path);
+fn approved_source_file(
+    app: &tauri::AppHandle,
+    path: &str,
+    maximum_bytes: u64,
+) -> Result<PathBuf, String> {
+    let canonical = Path::new(path)
+        .canonicalize()
+        .map_err(|_| "The selected file no longer exists.".to_string())?;
+    if !app.fs_scope().is_allowed(&canonical) {
+        return Err("Access to this file was not approved. Please select it again.".to_string());
+    }
+    ensure_source_file(&canonical, maximum_bytes)?;
+    Ok(canonical)
+}
+
+fn approved_output_directory(app: &tauri::AppHandle, path: &str) -> Result<PathBuf, String> {
+    let directory = Path::new(path)
+        .canonicalize()
+        .map_err(|_| "Please choose a valid output folder.".to_string())?;
     if !directory.is_dir() {
         return Err("Please choose a valid output folder.".to_string());
+    }
+    if !app.fs_scope().is_allowed(&directory) {
+        return Err(
+            "Access to this output folder was not approved. Please choose it again.".to_string(),
+        );
     }
     Ok(directory)
 }
 
 fn read_image(path: &Path) -> Result<DynamicImage, String> {
-    ImageReader::open(path)
+    let mut reader = ImageReader::open(path)
         .map_err(display_error)?
         .with_guessed_format()
-        .map_err(display_error)?
+        .map_err(display_error)?;
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(MAX_IMAGE_DIMENSION);
+    limits.max_image_height = Some(MAX_IMAGE_DIMENSION);
+    limits.max_alloc = Some(MAX_IMAGE_ALLOCATION);
+    reader.limits(limits);
+    let image = reader
         .decode()
-        .map_err(|error| format!("Could not decode {}: {error}", path.display()))
+        .map_err(|error| format!("Could not decode {}: {error}", path.display()))?;
+    validate_image_dimensions(image.width(), image.height())?;
+    Ok(image)
+}
+
+fn validate_image_dimensions(width: u32, height: u32) -> Result<(), String> {
+    let pixels = u64::from(width)
+        .checked_mul(u64::from(height))
+        .ok_or_else(|| "The requested image size is too large.".to_string())?;
+    if width == 0
+        || height == 0
+        || width > MAX_IMAGE_DIMENSION
+        || height > MAX_IMAGE_DIMENSION
+        || pixels > MAX_IMAGE_PIXELS
+    {
+        return Err(format!(
+            "Images are limited to {MAX_IMAGE_DIMENSION}px per side and {MAX_IMAGE_PIXELS} pixels."
+        ));
+    }
+    Ok(())
 }
 
 fn resize_image(image: DynamicImage, options: &ConversionOptions) -> Result<DynamicImage, String> {
@@ -284,6 +378,7 @@ fn resize_image(image: DynamicImage, options: &ConversionOptions) -> Result<Dyna
                 ((image.width() as f64 * options.scale_percent / 100.0).round() as u32).max(1);
             let height =
                 ((image.height() as f64 * options.scale_percent / 100.0).round() as u32).max(1);
+            validate_image_dimensions(width, height)?;
             Ok(image.resize_exact(width, height, FilterType::Lanczos3))
         }
         "dimensions" => {
@@ -295,6 +390,7 @@ fn resize_image(image: DynamicImage, options: &ConversionOptions) -> Result<Dyna
                 .height
                 .ok_or_else(|| "A target height is required.".to_string())?
                 .max(1);
+            validate_image_dimensions(width, height)?;
             if options.preserve_aspect_ratio {
                 Ok(image.resize(width, height, FilterType::Lanczos3))
             } else {
@@ -636,6 +732,13 @@ mod tests {
     }
 
     #[test]
+    fn rejects_oversized_image_dimensions() {
+        assert!(validate_image_dimensions(MAX_IMAGE_DIMENSION, 1).is_ok());
+        assert!(validate_image_dimensions(MAX_IMAGE_DIMENSION + 1, 1).is_err());
+        assert!(validate_image_dimensions(10_001, 10_001).is_err());
+    }
+
+    #[test]
     fn alpha_is_blended_onto_white_for_jpeg() {
         let image = DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
             1,
@@ -659,20 +762,17 @@ mod tests {
         ))
         .save_with_format(&input, ImageFormat::Png)
         .unwrap();
-        let result = convert_image(
-            input.to_string_lossy().into_owned(),
-            ConversionOptions {
-                output_directory: directory.to_string_lossy().into_owned(),
-                target_format: "ico".into(),
-                quality: 80,
-                resize_mode: "percentage".into(),
-                scale_percent: 50.0,
-                width: None,
-                height: None,
-                preserve_aspect_ratio: true,
-            },
-        )
-        .unwrap();
+        let options = ConversionOptions {
+            output_directory: directory.to_string_lossy().into_owned(),
+            target_format: "ico".into(),
+            quality: 80,
+            resize_mode: "percentage".into(),
+            scale_percent: 50.0,
+            width: None,
+            height: None,
+            preserve_aspect_ratio: true,
+        };
+        let result = convert_image_impl(&input, &directory, &options).unwrap();
         let output = read_image(Path::new(&result.output_path)).unwrap();
         assert_eq!(output.dimensions(), (20, 20));
         assert!(result.bytes_after > 0);
@@ -684,17 +784,14 @@ mod tests {
         let directory = temporary_directory();
         let input = directory.join("tiny.png");
         DynamicImage::new_rgba8(8, 6).save(&input).unwrap();
-        let result = enhance_image(
-            input.to_string_lossy().into_owned(),
-            EnhanceOptions {
-                output_directory: directory.to_string_lossy().into_owned(),
-                target_format: "png".into(),
-                quality: 90,
-                upscale: 2,
-                strength: "standard".into(),
-            },
-        )
-        .unwrap();
+        let options = EnhanceOptions {
+            output_directory: directory.to_string_lossy().into_owned(),
+            target_format: "png".into(),
+            quality: 90,
+            upscale: 2,
+            strength: "standard".into(),
+        };
+        let result = enhance_image_impl(&input, &directory, &options).unwrap();
         assert_eq!(
             read_image(Path::new(&result.output_path))
                 .unwrap()

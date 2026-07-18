@@ -19,6 +19,7 @@ PicFlip is a private, offline media conversion toolkit for Windows and macOS. It
 - Creator details: the Settings menu includes Khairul Azhar's website and GitHub links.
 - Update entry point: Settings includes a bilingual update-check button, currently showing a coming-soon message while the automatic update service is prepared.
 - Privacy: no accounts, analytics, uploads, remote conversion, or network access while using the app.
+- Security hardening: native commands only accept files and output folders explicitly approved through PicFlip's picker or drag-and-drop, and oversized image/PDF inputs are rejected before they can exhaust laptop memory.
 
 Clean Upscale is a classical local enhancement filter, not generative AI. It can reduce visible blockiness and improve edge definition, but cannot reconstruct detail that does not exist in the source image.
 
@@ -66,6 +67,7 @@ FFmpeg executable must be accompanied by its complete corresponding source.
 
 ```bash
 pnpm exec tsc --noEmit
+pnpm run security:scan
 cd src-tauri && cargo test
 ```
 
@@ -84,3 +86,6 @@ license texts with released binaries.
 PicFlip performs conversion locally and does not require media uploads. Media
 files are still untrusted input, so keep PicFlip and its parsing dependencies
 updated. Please read [SECURITY.md](SECURITY.md) before reporting a vulnerability.
+Production builds use a restrictive Content Security Policy, remove private
+build paths from packaged binaries, and pin every GitHub Action to an immutable
+commit. Dependabot checks JavaScript, Rust, and Actions dependencies weekly.
