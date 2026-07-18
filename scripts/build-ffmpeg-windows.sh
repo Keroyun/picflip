@@ -141,7 +141,7 @@ chmod 755 "$project_directory/scripts/picflip-pkg-config.sh"
   --disable-avdevice \
   --enable-small
 
-make -j"$build_jobs" ffmpeg || make -j1 ffmpeg
+make -j"$build_jobs" ffmpeg.exe || make -j1 ffmpeg.exe
 cp "$source_directory/ffmpeg-8.0/ffmpeg.exe" "$destination"
 
 if x86_64-w64-mingw32-objdump -p "$destination" \
