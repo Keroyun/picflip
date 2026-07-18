@@ -20,9 +20,20 @@ fi
 
 source_directory="$cache_directory/source"
 prefix_directory="$cache_directory/prefix"
+tool_shim_directory="$cache_directory/tool-shims"
 build_jobs="${PICFLIP_BUILD_JOBS:-${NUMBER_OF_PROCESSORS:-4}}"
 
-mkdir -p "$source_directory" "$prefix_directory" "$(dirname "$destination")"
+mkdir -p "$source_directory" "$prefix_directory" "$tool_shim_directory" "$(dirname "$destination")"
+
+# MSYS2 UCRT64 exposes a few binutils without the MinGW target prefix even
+# though autotools and FFmpeg cross builds look for the prefixed names.
+for tool in ar ranlib strip nm objdump dlltool windres; do
+  prefixed_tool="x86_64-w64-mingw32-$tool"
+  if ! command -v "$prefixed_tool" >/dev/null 2>&1 && command -v "$tool" >/dev/null 2>&1; then
+    ln -sf "$(command -v "$tool")" "$tool_shim_directory/$prefixed_tool"
+  fi
+done
+export PATH="$tool_shim_directory:$PATH"
 
 download_and_extract() {
   local url="$1"
@@ -159,4 +170,3 @@ cp "$project_directory/THIRD_PARTY_NOTICES.md" "$resources_directory/THIRD_PARTY
 } > "$resources_directory/WINDOWS-FFMPEG-BUILD-INFO.txt"
 
 "$destination" -hide_banner -version
-
