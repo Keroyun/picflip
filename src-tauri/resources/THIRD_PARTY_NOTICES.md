@@ -4,7 +4,14 @@ PicFlip uses the following open-source components. This notice is informational 
 
 ## FFmpeg
 
-The packaged audio and video engine is a separate FFmpeg 8.0 command-line executable. On macOS it is built from source by `scripts/build-ffmpeg-macos.sh` with GPL features enabled and with `--enable-nonfree` explicitly prohibited. LAME 3.100 provides MP3 encoding and x264 provides H.264 video encoding. Windows builds use `ffmpeg-static`; `scripts/prepare-sidecar.mjs` requires x264 and rejects unredistributable `--enable-nonfree` configurations.
+This source-only repository does not contain an FFmpeg executable. A desktop
+build can produce or obtain a separate FFmpeg 8.0 command-line executable. On
+macOS it is built from source by `scripts/build-ffmpeg-macos.sh` with GPL
+features enabled and with `--enable-nonfree` explicitly prohibited. LAME 3.100
+provides MP3 encoding and x264 provides H.264 video encoding. The Windows share
+workflow builds the same minimal profile from pinned source archives. Other
+local Windows builds may use `ffmpeg-static`; `scripts/prepare-sidecar.mjs`
+requires x264 and rejects unredistributable `--enable-nonfree` configurations.
 
 - FFmpeg project and source: https://ffmpeg.org/
 - Exact FFmpeg source archive: https://ffmpeg.org/releases/ffmpeg-8.0.tar.xz
@@ -14,7 +21,10 @@ The packaged audio and video engine is a separate FFmpeg 8.0 command-line execut
 - x264 stable source archive: https://code.videolan.org/videolan/x264/-/archive/stable/x264-stable.tar.bz2
 - ffmpeg-static: https://github.com/eugeneware/ffmpeg-static
 
-The packaged FFmpeg executable is licensed under GNU GPL version 3 or later. Anyone distributing PicFlip binaries must also provide the corresponding FFmpeg/LAME source and applicable license texts as required by those licenses.
+An FFmpeg executable created by this configuration is licensed under GNU GPL
+version 3 or later. Anyone distributing a PicFlip binary containing that
+executable must also provide its complete corresponding FFmpeg, LAME, and x264
+source, local patches and build scripts, plus the applicable license texts.
 
 ## PDF.js
 

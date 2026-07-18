@@ -47,6 +47,13 @@ Build each desktop target on its native operating system. The included
 the Rust core, but deliberately does not build or publish installers. Unsigned
 local builds are suitable for development and testing only.
 
+The **Build Windows share package** workflow creates an unsigned Windows x64
+NSIS installer using a minimal FFmpeg 8.0 sidecar built from pinned FFmpeg,
+LAME, and x264 source archives. Its downloadable artifact also contains a
+corresponding-source ZIP and a single share package that keeps the installer
+and sources together. Windows SmartScreen may warn about this unsigned test
+build.
+
 Before publishing a binary, follow [RELEASING.md](RELEASING.md). Public releases
 should be signed, macOS releases should be notarized, and any distributed
 FFmpeg executable must be accompanied by its complete corresponding source.

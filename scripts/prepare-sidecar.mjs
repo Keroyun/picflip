@@ -81,9 +81,16 @@ async function prepareLicenseNotices() {
     await copyFile(new URL("ffmpeg-8.0/COPYING.GPLv3", sourceRoot), new URL("COPYING.GPLv3", resourcesDirectory));
     await copyFile(new URL("lame-3.100/COPYING", sourceRoot), new URL("COPYING.LAME", resourcesDirectory));
     await copyFile(new URL("x264-stable/COPYING", sourceRoot), new URL("COPYING.X264", resourcesDirectory));
-  } else {
-    await copyFile(new URL("../node_modules/ffmpeg-static/ffmpeg.LICENSE", import.meta.url), new URL("FFMPEG.LICENSE", resourcesDirectory));
-    await copyFile(new URL("../node_modules/ffmpeg-static/LICENSE", import.meta.url), new URL("FFMPEG-STATIC.LICENSE", resourcesDirectory));
+  } else if (process.env.PICFLIP_CUSTOM_FFMPEG_SOURCE !== "1") {
+    const downloadedBinaryName = windowsTarget ? "ffmpeg.exe" : "ffmpeg";
+    await copyFile(
+      new URL(`../node_modules/ffmpeg-static/${downloadedBinaryName}.LICENSE`, import.meta.url),
+      new URL("FFMPEG.LICENSE", resourcesDirectory),
+    );
+    await copyFile(
+      new URL("../node_modules/ffmpeg-static/LICENSE", import.meta.url),
+      new URL("FFMPEG-STATIC.LICENSE", resourcesDirectory),
+    );
   }
 }
 
