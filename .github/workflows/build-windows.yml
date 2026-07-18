@@ -82,7 +82,7 @@ jobs:
 
       - name: Build Windows NSIS installer
         shell: pwsh
-        run: pnpm run desktop:build -- --bundles nsis
+        run: pnpm run desktop:build --bundles nsis
 
       - name: Create share and corresponding-source packages
         shell: pwsh
