@@ -2,6 +2,7 @@ import { access, chmod, copyFile, mkdir, rm } from "node:fs/promises";
 import { promisify } from "node:util";
 import { execFile as execFileCallback } from "node:child_process";
 import { arch, platform } from "node:process";
+import { fileURLToPath } from "node:url";
 import ffmpegPath from "ffmpeg-static";
 
 const execFile = promisify(execFileCallback);
@@ -30,7 +31,7 @@ if (targetTriple === "aarch64-apple-darwin" || targetTriple === "x86_64-apple-da
   const buildScript = new URL("./build-ffmpeg-macos.sh", import.meta.url);
   await chmod(buildScript, 0o755);
   process.stdout.write(`Building a redistributable FFmpeg sidecar for ${targetTriple}…\n`);
-  await execFile(buildScript.pathname, [destination.pathname], { timeout: 30 * 60_000 });
+  await execFile(fileURLToPath(buildScript), [fileURLToPath(destination)], { timeout: 30 * 60_000 });
 } else {
   if (!ffmpegPath) {
     throw new Error(`No bundled FFmpeg binary is available for ${platform}/${arch}.`);
@@ -54,7 +55,7 @@ async function isUsable(binaryUrl) {
   try {
     await access(binaryUrl);
     if (!windowsTarget) await chmod(binaryUrl, 0o755);
-    const binaryPath = binaryUrl instanceof URL ? binaryUrl.pathname : binaryUrl;
+    const binaryPath = binaryUrl instanceof URL ? fileURLToPath(binaryUrl) : binaryUrl;
     const { stdout, stderr } = await execFile(binaryPath, ["-version"], {
       timeout: 20_000,
       maxBuffer: 2 * 1024 * 1024,
@@ -81,9 +82,16 @@ async function prepareLicenseNotices() {
     await copyFile(new URL("ffmpeg-8.0/COPYING.GPLv3", sourceRoot), new URL("COPYING.GPLv3", resourcesDirectory));
     await copyFile(new URL("lame-3.100/COPYING", sourceRoot), new URL("COPYING.LAME", resourcesDirectory));
     await copyFile(new URL("x264-stable/COPYING", sourceRoot), new URL("COPYING.X264", resourcesDirectory));
-  } else {
-    await copyFile(new URL("../node_modules/ffmpeg-static/ffmpeg.LICENSE", import.meta.url), new URL("FFMPEG.LICENSE", resourcesDirectory));
-    await copyFile(new URL("../node_modules/ffmpeg-static/LICENSE", import.meta.url), new URL("FFMPEG-STATIC.LICENSE", resourcesDirectory));
+  } else if (process.env.PICFLIP_CUSTOM_FFMPEG_SOURCE !== "1") {
+    const downloadedBinaryName = windowsTarget ? "ffmpeg.exe" : "ffmpeg";
+    await copyFile(
+      new URL(`../node_modules/ffmpeg-static/${downloadedBinaryName}.LICENSE`, import.meta.url),
+      new URL("FFMPEG.LICENSE", resourcesDirectory),
+    );
+    await copyFile(
+      new URL("../node_modules/ffmpeg-static/LICENSE", import.meta.url),
+      new URL("FFMPEG-STATIC.LICENSE", resourcesDirectory),
+    );
   }
 }
 

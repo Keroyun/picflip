@@ -34,6 +34,11 @@ For every build that contains FFmpeg:
    sources and configurations.
 7. Sign public Windows installers. Sign and notarize public macOS builds.
 
+The `Build Windows share package` workflow automates the Windows x64 test
+installer and packages its exact FFmpeg, LAME, and x264 source archives beside
+the installer. Share the generated `Windows-x64-Share-Package.zip` as a whole;
+do not separate the installer from its corresponding-source package.
+
 The x264 download currently uses the upstream `stable` archive URL, but the
 build script pins its SHA-256 digest. If upstream changes that archive, the
 build must stop until the new source is reviewed, recorded, and intentionally

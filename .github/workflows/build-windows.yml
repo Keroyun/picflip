@@ -1,0 +1,157 @@
+name: Build Windows share package
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/build-windows.yml"
+      - "scripts/**"
+      - "src/**"
+      - "src-tauri/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    name: Windows x64 installer and sources
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      PICFLIP_CUSTOM_FFMPEG_SOURCE: "1"
+      PICFLIP_BUILD_JOBS: "4"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install MSYS2 build tools
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            base-devel
+            curl
+            diffutils
+            make
+            tar
+            unzip
+            zip
+            mingw-w64-ucrt-x86_64-binutils
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-pkgconf
+
+      - name: Install application dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build reproducible Windows FFmpeg sidecar
+        shell: msys2 {0}
+        run: |
+          chmod 755 scripts/build-ffmpeg-windows.sh scripts/picflip-pkg-config.sh
+          ./scripts/build-ffmpeg-windows.sh \
+            src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe
+
+      - name: Verify Windows FFmpeg profile
+        shell: pwsh
+        run: |
+          $ffmpeg = "src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe"
+          $version = (& $ffmpeg -version 2>&1) -join "`n"
+          Write-Host $version
+          if ($version -notmatch "--enable-libx264") { throw "FFmpeg is missing x264." }
+          if ($version -notmatch "--enable-libmp3lame") { throw "FFmpeg is missing LAME." }
+          if ($version -match "--enable-nonfree") { throw "Nonfree FFmpeg builds cannot be distributed." }
+
+      - name: Build Windows NSIS installer
+        shell: pwsh
+        run: pnpm run desktop:build --bundles nsis
+
+      - name: Create share and corresponding-source packages
+        shell: pwsh
+        run: |
+          $version = "0.3.0"
+          $release = Join-Path $PWD "windows-release"
+          $sourceRoot = Join-Path $release "corresponding-source"
+          $shareRoot = Join-Path $release "share-package"
+          New-Item -ItemType Directory -Force $release, $sourceRoot, $shareRoot | Out-Null
+
+          $installer = Get-ChildItem "src-tauri/target/release/bundle/nsis/*.exe" |
+            Select-Object -First 1
+          if (-not $installer) { throw "The NSIS installer was not produced." }
+
+          $installerName = "PicFlip-$version-Windows-x64-Setup.exe"
+          Copy-Item $installer.FullName (Join-Path $release $installerName)
+
+          $sourceCache = "src-tauri/binaries/build-cache/windows-x64/source"
+          Copy-Item "$sourceCache/ffmpeg-8.0.tar.xz" $sourceRoot
+          Copy-Item "$sourceCache/lame-3.100.tar.gz" $sourceRoot
+          Copy-Item "$sourceCache/x264-stable.tar.bz2" $sourceRoot
+          Copy-Item "scripts/build-ffmpeg-windows.sh" $sourceRoot
+          Copy-Item "scripts/picflip-pkg-config.sh" $sourceRoot
+          Copy-Item "src-tauri/resources/COPYING.GPLv3" $sourceRoot
+          Copy-Item "src-tauri/resources/COPYING.LAME" $sourceRoot
+          Copy-Item "src-tauri/resources/COPYING.X264" $sourceRoot
+          Copy-Item "src-tauri/resources/WINDOWS-FFMPEG-BUILD-INFO.txt" $sourceRoot
+          Copy-Item "THIRD_PARTY_NOTICES.md" $sourceRoot
+
+          @"
+          PicFlip $version Windows FFmpeg corresponding source
+
+          This directory contains the exact source archives and build scripts
+          used for the FFmpeg executable bundled with PicFlip for Windows x64.
+          The source archives are unmodified and verified by SHA-256 in the
+          build script and WINDOWS-FFMPEG-BUILD-INFO.txt.
+
+          Build environment: MSYS2 UCRT64 with MinGW-w64 GCC.
+          Build command:
+            ./build-ffmpeg-windows.sh <destination.exe>
+          "@ | Set-Content -Encoding utf8 (Join-Path $sourceRoot "README.txt")
+
+          $sourceZip = Join-Path $release "PicFlip-$version-Windows-FFmpeg-Corresponding-Source.zip"
+          Compress-Archive -Path "$sourceRoot/*" -DestinationPath $sourceZip -CompressionLevel Optimal
+
+          Copy-Item (Join-Path $release $installerName) $shareRoot
+          Copy-Item $sourceZip $shareRoot
+          @"
+          PicFlip $version for Windows x64
+
+          1. Run $installerName to install PicFlip.
+          2. This test build is unsigned, so Windows SmartScreen may show a warning.
+          3. File conversion is performed locally on the computer.
+          4. The FFmpeg corresponding-source package is included to satisfy the
+             open-source distribution requirements. Keep it with the installer
+             whenever you share this package.
+          "@ | Set-Content -Encoding utf8 (Join-Path $shareRoot "README-WINDOWS.txt")
+
+          Get-ChildItem $shareRoot -File | Get-FileHash -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash.ToLower())  $([IO.Path]::GetFileName($_.Path))" } |
+            Set-Content -Encoding ascii (Join-Path $shareRoot "SHA256SUMS.txt")
+
+          Compress-Archive -Path "$shareRoot/*" -DestinationPath (Join-Path $release "PicFlip-$version-Windows-x64-Share-Package.zip") -CompressionLevel Optimal
+          Remove-Item -Recurse -Force $sourceRoot, $shareRoot
+
+      - name: Upload Windows packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: PicFlip-0.3.0-Windows-x64
+          path: windows-release/*
+          if-no-files-found: error
+          retention-days: 14
