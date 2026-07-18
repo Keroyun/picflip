@@ -1,0 +1,22 @@
+[package]
+name = "picflip"
+version = "0.3.0"
+description = "A private, offline media conversion toolkit"
+authors = ["PicFlip"]
+edition = "2021"
+
+[lib]
+name = "picflip_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+base64 = "0.22"
+image = { version = "0.25", features = ["bmp", "gif", "ico", "jpeg", "png", "tiff", "webp"] }
+serde = { version = "1", features = ["derive"] }
+tauri = { version = "2", features = ["macos-private-api"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-shell = "2"
+webp = "0.3"

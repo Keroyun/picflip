@@ -1,0 +1,29 @@
+# Third-party notices
+
+PicFlip uses the following open-source components. This notice is informational and does not replace the full licenses shipped by each project.
+
+## FFmpeg
+
+The packaged audio and video engine is a separate FFmpeg 8.0 command-line executable. On macOS it is built from source by `scripts/build-ffmpeg-macos.sh` with GPL features enabled and with `--enable-nonfree` explicitly prohibited. LAME 3.100 provides MP3 encoding and x264 provides H.264 video encoding. Windows builds use `ffmpeg-static`; `scripts/prepare-sidecar.mjs` requires x264 and rejects unredistributable `--enable-nonfree` configurations.
+
+- FFmpeg project and source: https://ffmpeg.org/
+- Exact FFmpeg source archive: https://ffmpeg.org/releases/ffmpeg-8.0.tar.xz
+- LAME project: https://lame.sourceforge.io/
+- Exact LAME source archive: https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz
+- x264 project: https://code.videolan.org/videolan/x264
+- x264 stable source archive: https://code.videolan.org/videolan/x264/-/archive/stable/x264-stable.tar.bz2
+- ffmpeg-static: https://github.com/eugeneware/ffmpeg-static
+
+The packaged FFmpeg executable is licensed under GNU GPL version 3 or later. Anyone distributing PicFlip binaries must also provide the corresponding FFmpeg/LAME source and applicable license texts as required by those licenses.
+
+## PDF.js
+
+PDF.js is licensed under the Apache License 2.0.
+
+- Project: https://github.com/mozilla/pdf.js
+
+## pdf-lib
+
+pdf-lib is licensed under the MIT License.
+
+- Project: https://github.com/Hopding/pdf-lib
