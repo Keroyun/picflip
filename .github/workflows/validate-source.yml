@@ -49,4 +49,4 @@ jobs:
         working-directory: src-tauri
         env:
           TAURI_CONFIG: '{"bundle":{"externalBin":[]}}'
-        run: cargo test --locked
+        run: cargo test --locked -- --test-threads=1
