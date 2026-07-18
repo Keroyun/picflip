@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "PicFlip",
-  "version": "0.3.1",
+  "version": "0.3.4",
   "identifier": "com.picflip.desktop",
   "build": {
     "beforeDevCommand": "pnpm run dev",
@@ -32,6 +32,13 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
     "category": "GraphicsAndDesign",
     "shortDescription": "Private offline media conversion",
     "longDescription": "Convert images, PDFs, audio, and video without uploading anything.",
