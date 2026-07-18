@@ -59,7 +59,7 @@ jobs:
         run: node scripts/security-scan.mjs
 
       - name: Install MSYS2 build tools
-        uses: msys2/setup-msys2@14def2cbd8457e21d5033f7d1654209f079f2b98 # immutable 2026-07-13 revision
+        uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2.32.0
         with:
           msystem: UCRT64
           update: true
