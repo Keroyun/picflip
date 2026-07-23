@@ -1,0 +1,159 @@
+name: Build macOS share package
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/build-macos.yml"
+      - "scripts/**"
+      - "src/**"
+      - "src-tauri/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-macos:
+    name: macOS arm64 app, DMG and sources
+    runs-on: macos-latest
+    timeout-minutes: 90
+    env:
+      PICFLIP_BUILD_JOBS: "3"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Read and verify application version
+        id: app
+        run: |
+          package_version="$(node -p "require('./package.json').version")"
+          tauri_version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          if [ "$package_version" != "$tauri_version" ]; then
+            echo "Version mismatch: package.json=$package_version, tauri.conf.json=$tauri_version" >&2
+            exit 1
+          fi
+          echo "version=$package_version" >> "$GITHUB_OUTPUT"
+          echo "Building PicFlip $package_version"
+
+      - name: Install Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      - name: Install pinned pnpm and stable Rust
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+
+      - name: Scan source for secrets and private paths
+        run: node scripts/security-scan.mjs
+
+      - name: Install application dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build macOS arm64 app and DMG
+        run: pnpm run desktop:build --bundles app,dmg
+
+      - name: Verify bundled application and FFmpeg profile
+        run: |
+          app="src-tauri/target/release/bundle/macos/PicFlip.app"
+          ffmpeg="$app/Contents/MacOS/ffmpeg"
+          test -d "$app"
+          test -x "$ffmpeg"
+          version_output="$($ffmpeg -version 2>&1)"
+          printf '%s\n' "$version_output"
+          printf '%s' "$version_output" | grep -- "--enable-libx264"
+          printf '%s' "$version_output" | grep -- "--enable-libmp3lame"
+          if printf '%s' "$version_output" | grep -q -- "--enable-nonfree"; then
+            echo "Nonfree FFmpeg builds cannot be distributed." >&2
+            exit 1
+          fi
+          codesign --verify --deep --strict --verbose=2 "$app"
+
+      - name: Create macOS share and corresponding-source packages
+        run: |
+          version="${{ steps.app.outputs.version }}"
+          release="$PWD/macos-release"
+          source_root="$release/corresponding-source"
+          share_root="$release/share-package"
+          mkdir -p "$release" "$source_root" "$share_root"
+
+          dmg="$(find src-tauri/target/release/bundle/dmg -maxdepth 1 -name '*.dmg' -print -quit)"
+          app="src-tauri/target/release/bundle/macos/PicFlip.app"
+          test -f "$dmg"
+          test -d "$app"
+
+          dmg_name="PicFlip-$version-macOS-arm64.dmg"
+          app_zip="PicFlip-$version-macOS-arm64-App.zip"
+          cp "$dmg" "$release/$dmg_name"
+          ditto -c -k --sequesterRsrc --keepParent "$app" "$release/$app_zip"
+
+          source_cache="src-tauri/binaries/build-cache/arm64/source"
+          cp "$source_cache/ffmpeg-8.0.tar.xz" "$source_root"
+          cp "$source_cache/lame-3.100.tar.gz" "$source_root"
+          cp "$source_cache/x264-stable.tar.bz2" "$source_root"
+          cp scripts/build-ffmpeg-macos.sh "$source_root"
+          cp scripts/picflip-pkg-config.sh "$source_root"
+          cp src-tauri/resources/COPYING.GPLv3 "$source_root"
+          cp src-tauri/resources/COPYING.LAME "$source_root"
+          cp src-tauri/resources/COPYING.X264 "$source_root"
+          cp THIRD_PARTY_NOTICES.md "$source_root"
+
+          cat > "$source_root/README.txt" <<'EOF'
+          PicFlip macOS FFmpeg corresponding source
+
+          This directory contains the exact source archives and build scripts
+          used for the FFmpeg executable bundled with PicFlip for macOS arm64.
+          The source archives are unmodified and verified by SHA-256 in
+          build-ffmpeg-macos.sh.
+
+          Build environment: GitHub-hosted Apple Silicon macOS runner.
+          Build command:
+            ./build-ffmpeg-macos.sh <destination>
+          EOF
+
+          source_zip="PicFlip-$version-macOS-FFmpeg-Corresponding-Source.zip"
+          ditto -c -k --sequesterRsrc "$source_root" "$release/$source_zip"
+
+          cp "$release/$dmg_name" "$share_root"
+          cp "$release/$app_zip" "$share_root"
+          cp "$release/$source_zip" "$share_root"
+          cat > "$share_root/README-MACOS.txt" <<EOF
+          PicFlip $version for macOS arm64
+
+          Preferred installation:
+          1. Open $dmg_name.
+          2. Drag PicFlip into Applications.
+
+          Alternative:
+          1. Extract $app_zip.
+          2. Move PicFlip.app into Applications.
+
+          This test build is ad-hoc signed but not Apple-notarized, so macOS may
+          ask you to approve it in Privacy & Security. File conversion runs
+          locally. Keep the FFmpeg corresponding-source ZIP with the installer
+          whenever you share this package.
+          EOF
+
+          (
+            cd "$share_root"
+            shasum -a 256 "$dmg_name" "$app_zip" "$source_zip" > SHA256SUMS.txt
+          )
+          ditto -c -k --sequesterRsrc "$share_root" \
+            "$release/PicFlip-$version-macOS-arm64-Share-Package.zip"
+          rm -rf "$source_root" "$share_root"
+
+      - name: Upload macOS packages
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: PicFlip-${{ steps.app.outputs.version }}-macOS-arm64
+          path: macos-release/*
+          if-no-files-found: error
+          retention-days: 14

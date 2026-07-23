@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
-import { createPdfFromPngImages, renderPdfToImages } from "./pdfTools";
+import { createPdfFromPngImages, renderPdfToImages, type PdfPageSize } from "./pdfTools";
 import { translate, type Language } from "./i18n";
 import picflipIcon from "./assets/picflip-icon.png";
 
@@ -44,7 +44,7 @@ const fontScaleStorageKey = "picflip-interface-font-scale";
 const languageStorageKey = "picflip-interface-language";
 const fontScaleMin = 90;
 const fontScaleMax = 130;
-const appVersion = "0.3.5";
+const appVersion = "0.3.6";
 const profileUrls = {
   website: "https://khairulazhar.com",
   github: "https://github.com/Keroyun",
@@ -92,6 +92,13 @@ function App() {
   const [gifWidth, setGifWidth] = useState(720);
   const [pdfImageFormat, setPdfImageFormat] = useState<"png" | "jpg" | "webp">("png");
   const [pdfScale, setPdfScale] = useState(2);
+  const [pdfResizeMode, setPdfResizeMode] = useState<ResizeMode>("original");
+  const [pdfScalePercent, setPdfScalePercent] = useState(100);
+  const [pdfWidth, setPdfWidth] = useState(1920);
+  const [pdfHeight, setPdfHeight] = useState(1080);
+  const [pdfPageSize, setPdfPageSize] = useState<PdfPageSize>("auto");
+  const [pdfPageWidthMm, setPdfPageWidthMm] = useState(210);
+  const [pdfPageHeightMm, setPdfPageHeightMm] = useState(297);
   const [isDragging, setIsDragging] = useState(false);
   const [isInspecting, setIsInspecting] = useState(false);
   const [isConverting, setIsConverting] = useState(false);
@@ -295,7 +302,12 @@ function App() {
         });
       } else {
         const pdfBase64 = await invoke<string>("read_file_base64", { path: item.path });
-        const pages = await renderPdfToImages(pdfBase64, pdfImageFormat, quality, pdfScale, (page, total) => {
+        const pages = await renderPdfToImages(pdfBase64, pdfImageFormat, quality, pdfScale, {
+          mode: pdfResizeMode,
+          scalePercent: pdfScalePercent,
+          width: Math.max(1, pdfWidth),
+          height: Math.max(1, pdfHeight),
+        }, (page, total) => {
           setNotice(translate(language, "renderingPage", { name: item.name, page, total }));
         });
         let firstPath = "";
@@ -330,7 +342,11 @@ function App() {
         setNotice(translate(language, "preparingImage", { current: index + 1, total: items.length }));
         images.push(await invoke<string>("image_as_png_base64", { path: items[index].path }));
       }
-      const pdfBase64 = await createPdfFromPngImages(images);
+      const pdfBase64 = await createPdfFromPngImages(images, {
+        pageSize: pdfPageSize,
+        widthMm: pdfPageWidthMm,
+        heightMm: pdfPageHeightMm,
+      });
       const outputPath = await invoke<string>("write_base64_file", {
         outputDirectory: destination,
         preferredName: `PicFlip-images-${new Date().toISOString().slice(0, 10)}.pdf`,
@@ -504,6 +520,12 @@ function App() {
             videoHeight={videoHeight} setVideoHeight={setVideoHeight} keepAudio={keepAudio} setKeepAudio={setKeepAudio}
             gifFps={gifFps} setGifFps={setGifFps} gifWidth={gifWidth} setGifWidth={setGifWidth}
             pdfImageFormat={pdfImageFormat} setPdfImageFormat={setPdfImageFormat} pdfScale={pdfScale} setPdfScale={setPdfScale}
+            pdfResizeMode={pdfResizeMode} setPdfResizeMode={setPdfResizeMode}
+            pdfScalePercent={pdfScalePercent} setPdfScalePercent={setPdfScalePercent}
+            pdfWidth={pdfWidth} setPdfWidth={setPdfWidth} pdfHeight={pdfHeight} setPdfHeight={setPdfHeight}
+            pdfPageSize={pdfPageSize} setPdfPageSize={setPdfPageSize}
+            pdfPageWidthMm={pdfPageWidthMm} setPdfPageWidthMm={setPdfPageWidthMm}
+            pdfPageHeightMm={pdfPageHeightMm} setPdfPageHeightMm={setPdfPageHeightMm}
           />
           <div className="setting-group output-group"><label>{translate(language, "saveTo")}</label><button className="folder-picker" onClick={() => void chooseOutputFolder()}><FolderIcon /><span>{outputDirectory ? shortPath(outputDirectory) : translate(language, "chooseOutputFolder")}</span><ChevronIcon /></button></div>
           <div className="local-note"><LockIcon /><p><strong>{translate(language, "privateByDesign")}</strong><br />{translate(language, "filesNeverLeave")}</p></div>
@@ -615,11 +637,37 @@ interface SettingsProps {
   keepAudio: boolean; setKeepAudio: (value: boolean) => void;
   gifFps: number; setGifFps: (value: number) => void; gifWidth: number; setGifWidth: (value: number) => void;
   pdfImageFormat: "png" | "jpg" | "webp"; setPdfImageFormat: (value: "png" | "jpg" | "webp") => void; pdfScale: number; setPdfScale: (value: number) => void;
+  pdfResizeMode: ResizeMode; setPdfResizeMode: (value: ResizeMode) => void;
+  pdfScalePercent: number; setPdfScalePercent: (value: number) => void;
+  pdfWidth: number; setPdfWidth: (value: number) => void; pdfHeight: number; setPdfHeight: (value: number) => void;
+  pdfPageSize: PdfPageSize; setPdfPageSize: (value: PdfPageSize) => void;
+  pdfPageWidthMm: number; setPdfPageWidthMm: (value: number) => void;
+  pdfPageHeightMm: number; setPdfPageHeightMm: (value: number) => void;
 }
 
 function Settings(props: SettingsProps) {
   const { language, mode } = props;
-  if (mode === "pdf" && props.pdfDirection === "images-to-pdf") return <div className="setting-card"><DocumentIcon /><h3>{translate(language, "oneImagePerPage")}</h3><p>{translate(language, "oneImagePerPageHelp")}</p></div>;
+  if (mode === "pdf" && props.pdfDirection === "images-to-pdf") return <>
+    <ChoiceGroup
+      label={translate(language, "pdfPageSize")}
+      values={["auto", "a4", "letter", "custom"]}
+      labels={[translate(language, "autoFromImage"), "A4", "Letter", translate(language, "custom")]}
+      selected={props.pdfPageSize}
+      onChange={(value) => props.setPdfPageSize(value as PdfPageSize)}
+    />
+    {props.pdfPageSize === "custom" && (
+      <div className="setting-group">
+        <label>{translate(language, "pageDimensions")}</label>
+        <div className="dimension-inputs dimension-inputs-with-unit">
+          <input aria-label={translate(language, "pageWidth")} type="number" min="25" max="1000" value={props.pdfPageWidthMm} onChange={(event) => props.setPdfPageWidthMm(Number(event.target.value))} />
+          <span>×</span>
+          <input aria-label={translate(language, "pageHeight")} type="number" min="25" max="1000" value={props.pdfPageHeightMm} onChange={(event) => props.setPdfPageHeightMm(Number(event.target.value))} />
+          <small>mm</small>
+        </div>
+      </div>
+    )}
+    <div className="setting-card"><DocumentIcon /><h3>{translate(language, "oneImagePerPage")}</h3><p>{translate(language, "pdfPageFitHelp")}</p></div>
+  </>;
   if (mode === "audio") return <>
     <ChoiceGroup label={translate(language, "outputFormat")} values={["mp3", "wav", "aac"]} selected={props.audioFormat} onChange={(v) => props.setAudioFormat(v as "mp3" | "wav" | "aac")} />
     {props.audioFormat !== "wav" && <RangeSetting label={translate(language, "audioBitrate")} value={props.audioBitrate} min={64} max={320} step={32} suffix=" kbps" onChange={props.setAudioBitrate} />}
@@ -640,6 +688,9 @@ function Settings(props: SettingsProps) {
   if (mode === "pdf") return <>
     <ChoiceGroup label={translate(language, "pageFormat")} values={["png", "jpg", "webp"]} selected={props.pdfImageFormat} onChange={(v) => props.setPdfImageFormat(v as "png" | "jpg" | "webp")} />
     <ChoiceGroup label={translate(language, "renderQuality")} values={["1", "2", "3"]} labels={[translate(language, "standard"), translate(language, "sharp"), translate(language, "print")]} selected={String(props.pdfScale)} onChange={(v) => props.setPdfScale(Number(v))} />
+    <ChoiceGroup label={translate(language, "pdfImageSize")} values={["original", "percentage", "dimensions"]} labels={[translate(language, "original"), translate(language, "percent"), translate(language, "fitWithin")]} selected={props.pdfResizeMode} onChange={(value) => props.setPdfResizeMode(value as ResizeMode)} />
+    {props.pdfResizeMode === "percentage" && <RangeSetting label={translate(language, "scale")} value={props.pdfScalePercent} min={25} max={200} step={5} suffix="%" onChange={props.setPdfScalePercent} />}
+    {props.pdfResizeMode === "dimensions" && <div className="setting-group"><label>{translate(language, "targetSize")}</label><div className="dimension-inputs"><input aria-label={translate(language, "pageWidth")} type="number" min="1" value={props.pdfWidth} onChange={(event) => props.setPdfWidth(Number(event.target.value))} /><span>×</span><input aria-label={translate(language, "pageHeight")} type="number" min="1" value={props.pdfHeight} onChange={(event) => props.setPdfHeight(Number(event.target.value))} /></div><p className="setting-help">{translate(language, "pdfImageFitHelp")}</p></div>}
     {props.pdfImageFormat !== "png" && <RangeSetting label={translate(language, "imageQuality")} value={props.quality} min={40} max={100} step={1} suffix="%" onChange={props.setQuality} />}
   </>;
   return <>
@@ -658,7 +709,8 @@ function Settings(props: SettingsProps) {
 }
 
 function ChoiceGroup({ label, values, labels, selected, onChange }: { label: string; values: readonly string[]; labels?: string[]; selected: string; onChange: (value: string) => void }) {
-  return <div className="setting-group"><label>{label}</label><div className={`choice-grid count-${Math.min(values.length, 3)}`}>{values.map((value, index) => <button key={value} className={selected === value ? "selected" : ""} onClick={() => onChange(value)}>{labels?.[index] ?? value.toUpperCase()}</button>)}</div></div>;
+  const columnCount = values.length === 4 ? 4 : Math.min(values.length, 3);
+  return <div className="setting-group"><label>{label}</label><div className={`choice-grid count-${columnCount}`}>{values.map((value, index) => <button key={value} className={selected === value ? "selected" : ""} onClick={() => onChange(value)}>{labels?.[index] ?? value.toUpperCase()}</button>)}</div></div>;
 }
 
 function RangeSetting({ label, value, min, max, step, suffix, onChange }: { label: string; value: number; min: number; max: number; step: number; suffix: string; onChange: (value: number) => void }) {
