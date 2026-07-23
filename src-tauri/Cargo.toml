@@ -1,6 +1,6 @@
 [package]
 name = "picflip"
-version = "0.3.5"
+version = "0.3.6"
 description = "A private, offline media conversion toolkit"
 authors = ["PicFlip"]
 edition = "2021"
